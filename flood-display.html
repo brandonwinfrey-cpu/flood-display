@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Same street, same storm, more water</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{--navy:#0c2233;--accent:#2fb4ff}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--navy);color:#fff;overflow:hidden;
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    -webkit-user-select:none;user-select:none}
+  body{display:flex;flex-direction:column}
+  body.hidecursor,body.hidecursor *{cursor:none!important}
+
+  header{flex:none;padding:1.4vh 4vw .6vh;text-align:center}
+  h1{font-size:clamp(20px,4.2vh,56px);font-weight:800;letter-spacing:-.01em;line-height:1.1}
+  header p{font-size:clamp(13px,2.3vh,30px);opacity:.78;margin-top:.4vh}
+
+  main{flex:1;min-height:0;padding:0 1.2vw;display:grid;grid-template-columns:repeat(3,1fr);gap:1vw}
+  .col{display:flex;flex-direction:column;min-height:0;min-width:0}
+  .stage{--u:12px;position:relative;flex:1;min-height:0;border-radius:1.2vh;overflow:hidden;background:#17303f}
+  canvas{display:block;width:100%;height:100%}
+
+  .card{--c:#7fa6bd;position:absolute;left:4%;right:4%;top:3%;
+    padding:calc(var(--u)*1) calc(var(--u)*1.4);border-radius:calc(var(--u)*1);
+    background:rgba(10,28,42,.88);border-left:calc(var(--u)*.6) solid var(--c);
+    transition:opacity .22s}
+  .card.fade{opacity:0}
+  .tag{font-size:calc(var(--u)*1.2);letter-spacing:.1em;font-weight:700;color:var(--c);text-transform:uppercase}
+  .big{font-size:calc(var(--u)*3.4);font-weight:800;line-height:1.05;margin:.12em 0 .1em}
+  .desc{font-size:calc(var(--u)*1.45);line-height:1.3;opacity:.93}
+
+  .pbtn{font:inherit;font-size:clamp(14px,2.9vh,40px);font-weight:800;letter-spacing:.03em;line-height:1.1;
+    margin-top:1vh;padding:.9vh .6vw;border-radius:1.4vh;color:#fff;background:transparent;
+    border:.4vh solid rgba(255,255,255,.4);cursor:pointer;touch-action:manipulation;
+    transition:background .2s,color .2s,border-color .2s,transform .08s}
+  .pbtn small{display:block;font-size:.5em;font-weight:600;letter-spacing:.02em;opacity:.8;margin-top:.15em}
+  .pbtn:active{transform:scale(.97)}
+  .pbtn.on{background:var(--c);border-color:var(--c);color:var(--navy)}
+
+  footer{flex:none;padding:.9vh 4vw 1.2vh;text-align:center}
+  #caption{font-size:clamp(15px,2.8vh,36px);font-weight:700;min-height:1.3em;transition:opacity .22s}
+  #caption.fade{opacity:0}
+  #all{font:inherit;font-size:clamp(11px,1.9vh,22px);font-weight:700;letter-spacing:.06em;margin-top:.6vh;
+    padding:.5vh 2vw;border-radius:1.2vh;color:#fff;background:transparent;
+    border:.3vh solid rgba(255,255,255,.4);cursor:pointer;touch-action:manipulation}
+  #all.on{background:#fff;color:var(--navy);border-color:#fff}
+  .foot{font-size:clamp(10px,1.6vh,16px);opacity:.55;margin-top:.6vh}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="headline"></h1>
+  <p id="sub"></p>
+</header>
+
+<main id="panels"></main>
+
+<footer>
+  <div id="caption"></div>
+  <button id="all" type="button">COMPARE ALL THREE</button>
+  <div class="foot" id="foot"></div>
+</footer>
+
+<script>
+(() => {
+'use strict';
+
+/* =====================================================================
+   EDIT HERE: all the words and numbers on the display
+   ===================================================================== */
+const CFG = {
+  headline: 'How deep is a 100-year flood on this walkway?',
+  sub: 'A “100-year flood” has a 1 in 100 chance of happening in any year.',
+  footnote: 'Flood depths and velocities are illustrative.',
+
+  // depth  = flood depth in metres
+  // flow   = how fast the water LOOKS like it moves (scene units per second; not a model output)
+  // walkway= height of a raised walkway in metres (people stand on it). 0 = at street level.
+  panels: [
+    { key: 'today', button: 'TODAY', buttonSub: '100-year flood', color: '#ffb020',
+      depth: 0.2, flow: 170, walkway: 0,
+      dry:  { tag: 'Today', big: 'Normal day', desc: 'The walkway on an ordinary day.' },
+      wet:  { tag: 'Today · 0.2 m deep', big: 'Calf deep',
+              desc: 'Walkable but slippery. Floodwater can carry sewage and rubbish.' },
+      caption: 'Today’s 100-year flood: about 0.2 m deep, and moving.' },
+    { key: 'y2100', button: '2100', buttonSub: 'same storm, climate change', color: '#ff5a4d',
+      depth: 0.4, flow: 380, walkway: 0,
+      dry:  { tag: '2100', big: 'Normal day', desc: 'The same walkway on an ordinary day.' },
+      wet:  { tag: '2100 · 0.4 m deep', big: 'Knee deep',
+              desc: 'Deeper water flows faster and is much harder to stand in. Unsafe for children and older people.' },
+      caption: 'Same street, same storm, in 2100: twice as deep and moving faster.' },
+    { key: 'better', button: '2100 + IMPROVEMENTS', buttonSub: 'better drainage and walkways', color: '#35c28a',
+      depth: 0.3, flow: 300, walkway: 0.3,
+      dry:  { tag: '2100 improved', big: 'Raised walkway', desc: 'Better drains, and a walkway raised 0.3 m.' },
+      wet:  { tag: '2100 improved · 0.3 m deep', big: 'Safer to walk',
+              desc: 'Better drainage: shallower, slower water. The raised walkway keeps people above it.' },
+      caption: 'Same storm in 2100, with better drainage and a raised walkway: shallower, slower, and people walk above the water.' }
+  ],
+
+  dryCaption: 'Press a button to see the flood.',
+  allCaption: 'Same storm in 2100: twice as deep without action, or a safer street with better drainage and walkways.',
+
+  idleSeconds: 20,        // seconds after a button press before the loop resumes
+  // The loop: which panels are flooded in each step, and for how many seconds.
+  loop: [
+    { on: [0, 0, 0], hold: 4 },
+    { on: [1, 0, 0], hold: 6 },
+    { on: [0, 1, 0], hold: 6 },
+    { on: [0, 0, 1], hold: 6 },
+    { on: [1, 1, 1], hold: 9 }
+  ]
+};
+
+/* ===================================================================== */
+
+const H = 900;
+const MAXFLOW = 380;
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const mix = (a, b, t) => a.map((v, i) => Math.round(lerp(v, b[i], t)));
+function rr(g, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
+$('headline').textContent = CFG.headline;
+$('sub').textContent = CFG.sub;
+$('foot').textContent = CFG.footnote;
+
+class Panel {
+  constructor(cfg, root) {
+    this.cfg = cfg;
+    this.GROUND = 830; this.PPM = 300;
+    this.W = 740; this.s = 1; this.dpr = 1;
+    this.cur = { depth: 0, flow: 0 };
+    this.tgt = { depth: 0, flow: 0 };
+    this.phase = 0;
+    this.people = [];
+    this.on = false;
+
+    const col = document.createElement('div'); col.className = 'col';
+    col.style.setProperty('--c', cfg.color);
+    col.innerHTML =
+      '<div class="stage"><canvas></canvas>' +
+      '<div class="card"><div class="tag"></div><div class="big"></div><div class="desc"></div></div></div>' +
+      '<button class="pbtn" type="button"></button>';
+    root.appendChild(col);
+    this.stage = col.querySelector('.stage');
+    this.cv = col.querySelector('canvas');
+    this.ctx = this.cv.getContext('2d');
+    this.stat = document.createElement('canvas');
+    this.sctx = this.stat.getContext('2d');
+    this.card = col.querySelector('.card');
+    this.btn = col.querySelector('.pbtn');
+    this.btn.innerHTML = cfg.button + '<small>' + cfg.buttonSub + '</small>';
+    this.card.style.setProperty('--c', cfg.color);
+  }
+
+  get walkY() { return this.GROUND - this.cfg.walkway * this.PPM; }   // y of the surface people stand on
+
+  setOn(on, instant) {
+    this.on = on;
+    this.tgt = on ? { depth: this.cfg.depth, flow: this.cfg.flow } : { depth: 0, flow: 0 };
+    if (instant) { this.cur.depth = this.tgt.depth; this.cur.flow = this.tgt.flow; }
+    const t = on ? this.cfg.wet : this.cfg.dry;
+    this.card.classList.add('fade');
+    clearTimeout(this._ct);
+    this._ct = setTimeout(() => {
+      this.card.querySelector('.tag').textContent = t.tag;
+      this.card.querySelector('.big').textContent = t.big;
+      this.card.querySelector('.desc').textContent = t.desc;
+      this.card.style.setProperty('--c', on ? this.cfg.color : '#7fa6bd');
+      this.card.classList.remove('fade');
+    }, instant ? 0 : 220);
+    this.btn.classList.toggle('on', on);
+  }
+
+  drawPerson(g, x, hMetres, y) {
+    const P = this.PPM * hMetres / 1.7;
+    g.save();
+    g.fillStyle = g.strokeStyle = '#f4efe4';
+    g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = 8; g.shadowOffsetY = 2;
+    g.lineCap = 'round';
+    g.lineWidth = 0.15 * P;
+    for (const k of [-1, 1]) {
+      g.beginPath(); g.moveTo(x + k * 0.09 * P, y - 0.92 * P); g.lineTo(x + k * 0.1 * P, y - 0.05 * P); g.stroke();
+      g.beginPath(); g.ellipse(x + k * 0.12 * P + k * 0.03 * P, y - 0.03 * P, 0.13 * P, 0.04 * P, 0, 0, Math.PI * 2); g.fill();
+    }
+    rr(g, x - 0.21 * P, y - 1.5 * P, 0.42 * P, 0.68 * P, 0.1 * P); g.fill();
+    g.lineWidth = 0.09 * P;
+    for (const k of [-1, 1]) {
+      g.beginPath(); g.moveTo(x + k * 0.25 * P, y - 1.42 * P); g.lineTo(x + k * 0.28 * P, y - 0.8 * P); g.stroke();
+    }
+    g.fillRect(x - 0.04 * P, y - 1.58 * P, 0.08 * P, 0.1 * P);
+    g.beginPath(); g.ellipse(x, y - 1.64 * P, 0.105 * P, 0.11 * P, 0, 0, Math.PI * 2); g.fill();
+    g.restore();
+  }
+
+  drawIllustration(g) {
+    const { W, GROUND } = this;
+    const sk = g.createLinearGradient(0, 0, 0, GROUND);
+    sk.addColorStop(0, '#a9bccb'); sk.addColorStop(1, '#d9e6ec');
+    g.fillStyle = sk; g.fillRect(0, 0, W, H);
+
+    const pal = ['#b8704f', '#6c9a96', '#d2b36b', '#8fa3b3', '#c4835a', '#7d9a74'];
+    const ws = [310, 280, 330, 290, 420, 300, 360];
+    const hs = [680, 640, 720, 660, 700, 620, 690];
+    let x = -20, i = 0;
+    while (x < W + 20) {
+      const w = ws[i % ws.length], top = GROUND - hs[i % hs.length];
+      g.fillStyle = pal[i % pal.length]; g.fillRect(x, top, w, GROUND - top);
+      for (let cx = x; cx < x + w; cx += 16) {
+        g.fillStyle = 'rgba(0,0,0,.10)'; g.fillRect(cx, top, 3, GROUND - top);
+        g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(cx + 3, top, 3, GROUND - top);
+      }
+      g.fillStyle = '#4a4e55'; g.fillRect(x - 12, top - 26, w + 24, 26);
+      g.fillStyle = 'rgba(255,255,255,.10)';
+      for (let cx = x - 12; cx < x + w + 12; cx += 14) g.fillRect(cx, top - 26, 3, 26);
+      g.fillStyle = 'rgba(0,0,0,.22)'; g.fillRect(x + w - 8, top, 8, GROUND - top);
+
+      const f = i % 3;
+      if (f === 0 || f === 2) {
+        const dx = x + w * 0.16, dw = 200, dh = 560;
+        g.fillStyle = '#2c3943'; g.fillRect(dx, GROUND - dh, dw, dh);
+        g.strokeStyle = 'rgba(255,255,255,.18)'; g.lineWidth = 6; g.strokeRect(dx, GROUND - dh, dw, dh);
+        g.fillStyle = '#c9ced1'; g.beginPath(); g.arc(dx + dw - 26, GROUND - dh * 0.5, 9, 0, 7); g.fill();
+      }
+      if (f === 1) {
+        const wx = x + w * 0.35, wy = GROUND - 520;
+        g.fillStyle = '#26323c'; g.fillRect(wx, wy, 130, 150);
+        g.strokeStyle = 'rgba(255,255,255,.22)'; g.lineWidth = 5;
+        g.strokeRect(wx, wy, 130, 150);
+        g.beginPath(); g.moveTo(wx + 65, wy); g.lineTo(wx + 65, wy + 150); g.moveTo(wx, wy + 75); g.lineTo(wx + 130, wy + 75); g.stroke();
+      }
+      if (f === 2) {
+        const bx = x + w - 215, bw = 160, bh = 270;
+        g.fillStyle = '#2f78b7'; rr(g, bx, GROUND - bh, bw, bh, 18); g.fill();
+        g.strokeStyle = 'rgba(0,0,0,.25)'; g.lineWidth = 4;
+        for (const k of [0.25, 0.5, 0.75]) { g.beginPath(); g.moveTo(bx, GROUND - bh * k); g.lineTo(bx + bw, GROUND - bh * k); g.stroke(); }
+      }
+      x += w; i++;
+    }
+
+    // concrete ground, shown as a cut-through
+    g.fillStyle = '#8a8b87'; g.fillRect(0, GROUND, W, H - GROUND);
+    g.fillStyle = '#5e605c'; g.fillRect(0, GROUND, W, 6);
+    g.strokeStyle = 'rgba(0,0,0,.10)'; g.lineWidth = 2;
+    for (let hx = -H; hx < W; hx += 34) { g.beginPath(); g.moveTo(hx, H); g.lineTo(hx + (H - GROUND), GROUND); g.stroke(); }
+
+    if (this.cfg.walkway > 0) this.drawImprovements(g);
+  }
+
+  // raised walkway on piers, plus a bigger drain, for the "improved" panel
+  drawImprovements(g) {
+    const { W, GROUND, PPM } = this;
+    const top = this.walkY, th = 0.07 * PPM;
+    // bigger drain: a wide culvert cut into the ground, with a grate
+    const dh = 54, dy = GROUND + 14;
+    g.fillStyle = '#2b3a44'; rr(g, 14, dy, W - 28, dh, 12); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.10)'; rr(g, 22, dy + 6, W - 44, 10, 5); g.fill();
+    g.fillStyle = '#6b7a84';
+    for (let gx = 40; gx < W - 40; gx += 46) g.fillRect(gx, GROUND - 3, 26, 9);   // grate slots
+    // piers
+    g.fillStyle = '#76776f';
+    for (let px = 40; px < W; px += 150) g.fillRect(px, top + th, 22, GROUND - top - th);
+  }
+
+  // the deck is drawn over the water, so people clearly stand above it
+  drawDeck(g) {
+    const { W, PPM } = this, top = this.walkY, th = 0.07 * PPM;
+    g.fillStyle = '#9b9c96'; g.fillRect(0, top, W, th);
+    g.fillStyle = '#35c28a'; g.fillRect(0, top, W, 6);
+    g.fillStyle = 'rgba(0,0,0,.2)'; g.fillRect(0, top + th - 4, W, 4);
+  }
+
+  drawStatic() {
+    const g = this.sctx;
+    g.setTransform(this.dpr * this.s, 0, 0, this.dpr * this.s, 0, 0);
+    g.clearRect(0, 0, this.W, H);
+    this.drawIllustration(g);
+    const px = this.W * 0.16, base = this.walkY;
+    this.people = [{ x: px, base }, { x: px + 150, base }];
+    this.drawPerson(g, px, 1.7, base);
+    this.drawPerson(g, px + 150, 1.1, base);
+  }
+
+  initParticles() {
+    const W = this.W;
+    this.parts = Array.from({ length: Math.round(W / 12) }, () => ({
+      x: Math.random() * W, y: 0.12 + Math.random() * 0.8,
+      l: 10 + Math.random() * 24, sf: 0.5 + Math.random() * 0.8, a: 0.2 + Math.random() * 0.3 }));
+    this.foam = Array.from({ length: Math.round(W / 30) }, () => ({
+      x: Math.random() * W, l: 8 + Math.random() * 20, sf: 0.9 + Math.random() * 0.2, j: Math.random() * 6 }));
+    this.debris = [
+      { k: 'bottle', x: -80,  w: 46, h: 14 },
+      { k: 'box',    x: -420, w: 44, h: 26 },
+      { k: 'bag',    x: -760, w: 36, h: 20 }
+    ];
+    this.rain = Array.from({ length: Math.round(W / 16) }, () => ({
+      x: Math.random() * W, y: Math.random() * H, l: 30 + Math.random() * 30, v: 1100 + Math.random() * 500 }));
+    this.splashes = [];
+  }
+
+  surf(x) {
+    const d = this.cur.depth * this.PPM;
+    if (d < 0.5) return this.GROUND;
+    const vN = Math.min(1, this.cur.flow / MAXFLOW);
+    const amp = 1.2 + 5.5 * vN;
+    const ph = this.phase;
+    let y = this.GROUND - d;
+    y += Math.sin((x - ph) * 0.020) * amp;
+    y += Math.sin((x - ph * 1.35) * 0.047 + 1.7) * amp * 0.55;
+    y += Math.sin((x - ph * 0.8) * 0.11 + 0.6) * amp * 0.25;
+    // water piling up against, and trailing behind, each person standing in it
+    for (const p of this.people) {
+      const dp = this.GROUND - p.base < 1 ? d : d - (this.GROUND - p.base);   // depth over their feet
+      const f = clamp((dp - 30) / 40, 0, 1);
+      if (f <= 0) continue;
+      const bump = (dp * 0.10 + 3) * (0.4 + vN) * f;
+      const up = x - (p.x - 50);
+      y -= bump * Math.exp(-(up * up) / (2 * 24 * 24));
+      const dn = x - (p.x + 70);
+      y += bump * 0.5 * Math.exp(-(dn * dn) / (2 * 38 * 38));
+      if (x > p.x) y += Math.sin((x - p.x) * 0.09 - ph * 0.02) * bump * 0.3 * Math.exp(-(x - p.x) / 200);
+    }
+    // water never climbs onto a raised walkway
+    if (this.cfg.walkway > 0) y = Math.max(y, this.walkY + 3);
+    return y;
+  }
+
+  drawRuler(g) {
+    const { GROUND, PPM, W } = this;
+    const rx = Math.min(this.people[1].x + 110, W - 290);
+    const top = GROUND - 1.85 * PPM;
+    g.save();
+    g.fillStyle = 'rgba(12,34,51,.62)';
+    rr(g, rx - 22, top, 150, GROUND - top + 4, 14); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,.9)'; g.fillStyle = '#fff'; g.lineWidth = 3;
+    g.font = '600 26px system-ui,sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.beginPath(); g.moveTo(rx, GROUND); g.lineTo(rx, GROUND - 1.8 * PPM); g.stroke();
+    for (let i = 0; i <= 18; i++) {
+      const y = GROUND - i * 0.1 * PPM, long = i % 5 === 0;
+      g.beginPath(); g.moveTo(rx, y); g.lineTo(rx + (long ? 26 : 14), y); g.stroke();
+      if (long && i > 0) g.fillText((i / 10).toFixed(1) + ' m', rx + 34, y);
+    }
+    if (this.cur.depth > 0.02) {
+      const y = GROUND - this.cur.depth * PPM;
+      g.strokeStyle = '#ffd24a'; g.lineWidth = 5;
+      g.beginPath(); g.moveTo(rx - 22, y); g.lineTo(rx + 128, y); g.stroke();
+      g.fillStyle = '#ffd24a';
+      g.beginPath(); g.moveTo(rx + 130, y); g.lineTo(rx + 146, y - 14); g.lineTo(rx + 146, y + 14); g.closePath(); g.fill();
+      rr(g, rx + 146, y - 24, 118, 48, 10); g.fill();
+      g.fillStyle = '#0c2233'; g.font = '800 32px system-ui,sans-serif';
+      g.fillText(this.cur.depth.toFixed(1) + ' m', rx + 160, y + 1);
+    }
+    g.restore();
+  }
+
+  update(dt) {
+    const c = this.cur, t = this.tgt;
+    c.depth += (t.depth - c.depth) * (1 - Math.exp(-dt * 1.1));
+    if (Math.abs(t.depth - c.depth) < 0.0008) c.depth = t.depth;
+    c.flow += (t.flow - c.flow) * (1 - Math.exp(-dt * 1.6));
+    if (Math.abs(t.flow - c.flow) < 0.5) c.flow = t.flow;
+    this.phase += c.flow * dt;
+  }
+
+  draw(dt) {
+    const g = this.ctx, { W, GROUND, PPM, cur } = this;
+    g.setTransform(this.dpr * this.s, 0, 0, this.dpr * this.s, 0, 0);
+    g.clearRect(0, 0, W, H);
+    g.drawImage(this.stat, 0, 0, W, H);
+
+    const d = cur.depth * PPM;
+    const wet = clamp(d / 25, 0, 1);
+    const vN = Math.min(1, cur.flow / MAXFLOW);
+
+    if (wet > 0) {
+      g.fillStyle = 'rgba(18,32,45,' + (0.28 * wet).toFixed(3) + ')';
+      g.fillRect(0, 0, W, H);
+      g.strokeStyle = 'rgba(255,255,255,' + (0.30 * wet).toFixed(3) + ')';
+      g.lineWidth = 1.6; g.lineCap = 'round';
+      g.beginPath();
+      for (const r of this.rain) {
+        r.y += r.v * dt; r.x -= r.v * dt * 0.18;
+        if (r.y > GROUND) { r.y = -r.l; r.x = Math.random() * (W + 200); }
+        if (r.x < -20) r.x += W + 40;
+        g.moveTo(r.x, r.y); g.lineTo(r.x + r.l * 0.18, r.y + r.l);
+      }
+      g.stroke();
+    }
+
+    if (d > 0.8) {
+      const mu = clamp((cur.flow - 170) / 210, 0, 1);
+      const t1 = mix([80, 175, 205], [150, 150, 110], mu);
+      const t2 = mix([24, 100, 140], [95, 85, 55], mu);
+      const grad = g.createLinearGradient(0, GROUND - d - 20, 0, GROUND);
+      grad.addColorStop(0, `rgba(${t1[0]},${t1[1]},${t1[2]},${lerp(0.55, 0.62, mu).toFixed(2)})`);
+      grad.addColorStop(1, `rgba(${t2[0]},${t2[1]},${t2[2]},${lerp(0.78, 0.82, mu).toFixed(2)})`);
+
+      g.beginPath(); g.moveTo(-10, GROUND);
+      for (let x = -10; x <= W + 10; x += 8) g.lineTo(x, this.surf(x));
+      g.lineTo(W + 10, GROUND); g.closePath();
+      g.fillStyle = grad; g.fill();
+
+      g.lineCap = 'round'; g.lineWidth = 2.2;
+      const visible = Math.round(this.parts.length * clamp(d / 90, 0.35, 1));
+      for (let i = 0; i < visible; i++) {
+        const p = this.parts[i];
+        p.x += cur.flow * (0.5 + 0.9 * (1 - p.y)) * p.sf * dt;
+        const len = p.l + cur.flow * 0.10;
+        if (p.x - len > W) { p.x = -len - Math.random() * 40; p.y = 0.12 + Math.random() * 0.8; }
+        const sy = this.surf(p.x);
+        const y = sy + (GROUND - sy) * p.y;
+        g.strokeStyle = 'rgba(255,255,255,' + (p.a * wet).toFixed(3) + ')';
+        g.beginPath(); g.moveTo(p.x - len, y); g.lineTo(p.x, y); g.stroke();
+      }
+
+      g.beginPath();
+      for (let x = -10; x <= W + 10; x += 8) { const y = this.surf(x); x === -10 ? g.moveTo(x, y) : g.lineTo(x, y); }
+      g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 3; g.stroke();
+
+      if (vN > 0.35) {
+        const fa = (vN - 0.35) / 0.65;
+        g.lineWidth = 3.5; g.strokeStyle = 'rgba(255,255,255,' + (0.55 * fa).toFixed(3) + ')';
+        for (const f of this.foam) {
+          f.x += cur.flow * 0.95 * f.sf * dt;
+          if (f.x - f.l > W) f.x = -f.l - Math.random() * 60;
+          const y = this.surf(f.x) + f.j * 0.3;
+          g.beginPath(); g.moveTo(f.x - f.l, y); g.lineTo(f.x, y); g.stroke();
+        }
+      }
+
+      if (Math.random() < 0.55 && this.splashes.length < 18) this.splashes.push({ x: Math.random() * W, age: 0 });
+      g.lineWidth = 2;
+      for (let i = this.splashes.length - 1; i >= 0; i--) {
+        const sp = this.splashes[i]; sp.age += dt;
+        if (sp.age > 0.45) { this.splashes.splice(i, 1); continue; }
+        const rad = 3 + sp.age * 55;
+        g.strokeStyle = 'rgba(255,255,255,' + (0.5 * (1 - sp.age / 0.45) * wet).toFixed(3) + ')';
+        g.beginPath(); g.ellipse(sp.x, this.surf(sp.x), rad, rad * 0.28, 0, 0, Math.PI * 2); g.stroke();
+      }
+
+      for (const it of this.debris) {
+        it.x += cur.flow * 0.85 * dt;
+        if (it.x > W + 80) it.x = -60 - Math.random() * 500;
+        const y0 = this.surf(it.x), ang = Math.atan((this.surf(it.x + 8) - this.surf(it.x - 8)) / 16);
+        g.save();
+        g.globalAlpha = clamp(d / 24, 0, 1);
+        g.translate(it.x, y0 - it.h * 0.25); g.rotate(ang);
+        if (it.k === 'bottle') {
+          g.fillStyle = 'rgba(215,238,228,.92)'; rr(g, -it.w / 2, -it.h / 2, it.w, it.h, 6); g.fill();
+          g.fillStyle = '#2b6cb0'; g.fillRect(it.w / 2 - 2, -4, 8, 8);
+          g.fillStyle = 'rgba(40,120,90,.7)'; g.fillRect(-8, -it.h / 2, 14, it.h);
+        } else if (it.k === 'box') {
+          g.fillStyle = '#b98a55'; g.fillRect(-it.w / 2, -it.h / 2, it.w, it.h);
+          g.strokeStyle = '#8a6338'; g.lineWidth = 2; g.strokeRect(-it.w / 2, -it.h / 2, it.w, it.h);
+        } else {
+          g.fillStyle = 'rgba(245,245,245,.88)';
+          g.beginPath(); g.ellipse(0, 0, it.w / 2, it.h / 2 * (0.8 + 0.2 * Math.sin(this.phase * 0.05)), 0, 0, Math.PI * 2); g.fill();
+        }
+        g.restore();
+      }
+    } else {
+      for (const it of this.debris) it.x = Math.min(it.x, -60 - Math.random() * 400);
+    }
+    if (this.cfg.walkway > 0) this.drawDeck(g);
+    this.drawRuler(g);
+  }
+
+  resize() {
+    const r = this.stage.getBoundingClientRect();
+    const cw = Math.max(160, Math.floor(r.width)), ch = Math.max(200, Math.floor(r.height));
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.cv.width = Math.round(cw * this.dpr); this.cv.height = Math.round(ch * this.dpr);
+    this.stat.width = this.cv.width; this.stat.height = this.cv.height;
+    this.s = ch / H; this.W = cw / this.s;
+    this.stage.style.setProperty('--u', (cw / 42).toFixed(2) + 'px');
+    this.initParticles();
+    this.drawStatic();
+  }
+}
+
+/* ---------- build the panels ---------- */
+const root = $('panels');
+const panels = CFG.panels.map(c => new Panel(c, root));
+const cap = $('caption');
+const allBtn = $('all');
+
+let stepIdx = 0, nextAt = 0;
+
+function setCaption(text) {
+  cap.classList.add('fade');
+  clearTimeout(setCaption._t);
+  setCaption._t = setTimeout(() => { cap.textContent = text; cap.classList.remove('fade'); }, 220);
+}
+function apply(on, instant) {
+  panels.forEach((p, i) => p.setOn(!!on[i], instant));
+  const n = on.filter(Boolean).length;
+  allBtn.classList.toggle('on', n === panels.length);
+  setCaption(n === 0 ? CFG.dryCaption : n === 1 ? CFG.panels[on.findIndex(Boolean)].caption : CFG.allCaption);
+}
+function press(i) {                      // i = panel index, 'all', or 'dry'
+  const on = panels.map((_, k) => i === 'all' ? 1 : i === k ? 1 : 0);
+  apply(on);
+  nextAt = performance.now() + CFG.idleSeconds * 1000;
+  lockScreen();
+  // continue the loop from the matching step
+  const match = CFG.loop.findIndex(st => st.on.join() === on.join());
+  stepIdx = match >= 0 ? match : stepIdx;
+}
+panels.forEach((p, i) => p.btn.addEventListener('click', () => press(i)));
+allBtn.addEventListener('click', () => press('all'));
+window.addEventListener('keydown', e => {
+  if (e.key === '1' || e.key === 'ArrowLeft') press(0);
+  else if (e.key === '2') press(1);
+  else if (e.key === '3' || e.key === 'ArrowRight') press(2);
+  else if (e.key === '4' || e.key === 'a' || e.key === 'A') press('all');
+  else if (e.key === '0' || e.key === 'Escape') press('dry');
+  else if (e.key === 'f' || e.key === 'F') {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+  }
+});
+
+// hide the mouse pointer when nobody is using it
+let mouseT;
+function wake() { document.body.classList.remove('hidecursor'); clearTimeout(mouseT); mouseT = setTimeout(() => document.body.classList.add('hidecursor'), 4000); }
+window.addEventListener('mousemove', wake); wake();
+
+// keep the screen awake where the browser allows it
+let wl = null;
+async function lockScreen() { try { if ('wakeLock' in navigator && !wl) { wl = await navigator.wakeLock.request('screen'); wl.addEventListener('release', () => { wl = null; }); } } catch (e) {} }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') lockScreen(); });
+lockScreen();
+
+/* ---------- main loop ---------- */
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (now >= nextAt) {
+    stepIdx = (stepIdx + 1) % CFG.loop.length;
+    apply(CFG.loop[stepIdx].on);
+    nextAt = now + CFG.loop[stepIdx].hold * 1000;
+  }
+  for (const p of panels) { p.update(dt); p.draw(dt); }
+  requestAnimationFrame(frame);
+}
+
+function resizeAll() { panels.forEach(p => p.resize()); }
+window.addEventListener('resize', resizeAll);
+
+resizeAll();
+apply(CFG.loop[0].on, true);
+nextAt = performance.now() + CFG.loop[0].hold * 1000;
+requestAnimationFrame(t => { last = t; frame(t); });
+
+window.__test = { press, panels, hold: () => { nextAt = Infinity; } };
+})();
+</script>
+</body>
+</html>
